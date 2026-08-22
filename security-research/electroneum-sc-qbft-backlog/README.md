@@ -4,7 +4,7 @@
 **Component:** `consensus/istanbul/core/backlog.go`
 **Class:** Resource-exhaustion / remote DoS (memory)
 **Attacker:** one Byzantine validator (within QBFT's `f` fault budget)
-**Status:** reproduced locally, root-caused, candidate fix implemented and verified
+**Status:** reproduced end-to-end on a live node, root-caused, candidate fix implemented and verified
 
 ---
 
@@ -157,6 +157,72 @@ against a 32 MiB budget** rather than growing without limit. Finding 4.1 is an
 accounting gap that roughly doubles Finding 3; Finding 3 is the x38.5 multiplier
 and is the primary issue.
 
+## 4bis. End-to-end verification
+
+The measurements in §4 drive `addToBacklog` directly. The tests below instead go
+through the production path with genuine ECDSA signatures, so nothing is stubbed
+and no internal is poked. Only one attacker capability is assumed: possession of
+a single validator private key.
+
+### (a) Real ingress — `poc/zz_e2e_signed_test.go`
+
+Enters at `handleEncodedMsg`, the exact function `core.handleEvents` dispatches
+`istanbul.MessageEvent` to. Traverses, in production order: `qbfttypes.Decode`
+→ `verifySignatures` (real ecrecover) → `checkMessage` → `addToBacklog`.
+
+```
+attacker  : validator 0xa060B089 (1 of 4, within QBFT's fault budget)
+frames    : 8 x 4.00 MiB, each signed and ecrecovered to a known validator
+charged   :    32.00 MiB   (per-sender budget 32 MiB)
+resident  :  1231.58 MiB
+amplified : x38.5
+```
+
+**Negative control** (`TestE2E_ForgedSignatureIsRejected`): the identical payload
+signed by a non-validator key is rejected and the backlog is untouched. Without
+this control the result above could be explained by the signature check simply
+not running.
+
+### (b) Full stack — `poc/backend/zz_e2e_fullstack_test.go`
+
+A real `Backend` on a real `BlockChain` with a real 4-validator set and a live
+QBFT core (`Backend.Start` → `startQBFT` → `core.Start` → `handleEvents`). The
+attacker sends ordinary p2p frames; the only entry point used is
+`Backend.HandleMsg`, which is what the eth protocol handler calls for a consensus
+frame from any connected peer.
+
+```
+node under attack : 0x8bA6300112 (validator set of 4)
+attacker          : 0x1EC8Db6601 (holds 1 validator key)
+frames delivered  : 8 via Backend.HandleMsg
+bytes on the wire :    32.00 MiB   (per-sender budget 32 MiB)
+heap resident     :  1231.58 MiB
+amplification     : x38.5
+```
+
+### (c) Scaled to the Byzantine fault budget — `poc/zz_e2e_faultbudget_test.go`
+
+QBFT tolerates `f = (N-1)/3` faulty validators. Each fills its own 32 MiB
+per-sender budget; `f × 32 MiB` stays well inside the global budget, so every
+frame is admitted.
+
+```
+validator set        : N=13, tolerated faults f=4
+Byzantine validators : 4 (exactly f — the protocol promises to survive this)
+frames admitted      : 32, all signature-verified
+global byte budget   :   512.00 MiB
+charged              :   128.00 MiB  (25% of the global budget)
+resident             :  4926.29 MiB
+amplification        : x38.5
+```
+
+**This is the severity argument.** The node is holding 4.9 GB while its own
+memory accounting reports it is at a quarter of budget. The amount of memory a
+correct node is forced to hold is set by the fault budget the protocol already
+promises to survive — so no additional attacker capability is needed beyond what
+QBFT already assumes. At `N=49` (`f=16`) the attackers saturate the 512 MiB
+global ceiling, which is ~19.7 GB resident.
+
 ## 5. Why the existing tests miss it
 
 `backlog_byte_limit_test.go` exercises the budget with
@@ -203,8 +269,10 @@ Verified:
 
 | | unpatched | patched |
 |---|---|---|
-| amplifying payloads admitted | 8 / 8 | **0 / 8** |
-| resident heap | 1231.58 MiB | **0.01 MiB** |
+| amplifying payloads admitted (direct) | 8 / 8 | **0 / 8** |
+| signed frames retained (real ingress) | 8 / 8 | **0 / 8** |
+| frames retained at `f` faults (N=13) | 32 / 32 | **0 / 32** |
+| resident, full stack via `HandleMsg` | 1231.58 MiB | **0.02 MiB** |
 | 6-cycle growth | 7,389 MiB | **0.00 MiB** |
 | electroneum-sc `consensus/istanbul/...` suite | pass | **pass, no regressions** |
 
@@ -227,13 +295,16 @@ git clone https://github.com/electroneum/electroneum-sc.git && cd electroneum-sc
 git checkout 17c6ffe
 
 cp -r <this>/engine hunt                        # payload engine
-cp <this>/poc/zz_*.go consensus/istanbul/core/
+cp <this>/poc/zz_*.go         consensus/istanbul/core/
+cp <this>/poc/backend/zz_*.go consensus/istanbul/backend/
 
 go run ./hunt/cmd/amp                           # amplification table
-go test ./consensus/istanbul/core/ -run TestBacklogByteBudget -v -timeout 20m
+go test ./consensus/istanbul/core/    -run TestBacklogByteBudget -v -timeout 20m
+go test ./consensus/istanbul/core/    -run TestE2E_ -v -timeout 20m   # real ingress + fault budget
+go test ./consensus/istanbul/backend/ -run TestE2E_FullStack -v       # live node via HandleMsg
 
 git apply <this>/retention-accounting.patch     # then re-run: attack blocked
 ```
 
-Needs ~10 GB RAM for the 6-cycle test. Entirely local; no network, no chain
+Needs ~10 GB RAM for the 6-cycle test and ~6 GB for the fault-budget test. Entirely local; no network, no chain
 state, no production system involved.

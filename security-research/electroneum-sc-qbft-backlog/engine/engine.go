@@ -110,19 +110,49 @@ func u64(v uint64) []byte {
 	return Str(b)
 }
 
-// BuildPreprepare renders the genome as a full PRE-PREPARE wire payload:
-//
-//	[ [ [Seq, Round, Block], Sig ], [ [RoundChanges], [Prepares] ] ]
-func (g Genome) BuildPreprepare() []byte {
-	block := List(
+// PreprepareCode is the QBFT message code for PRE-PREPARE. Duplicated here so
+// the engine stays free of a consensus-package import.
+const PreprepareCode = 0x12
+
+// block renders the embedded *types.Block: [Header, Txs, Uncles].
+func (g Genome) block() []byte {
+	return List(
 		minHeader(),
 		List(Rep(txEncoding(g.Kind), g.NTx)),
 		List(Rep(minHeader(), g.NUncles)),
 	)
-	payload := List(u64(g.Seq), u64(g.Round), block)
-	signed := List(payload, Str(make([]byte, 65))) // 65-byte ECDSA sig
+}
+
+// signedPayload is the inner [Sequence, Round, Proposal] tuple.
+func (g Genome) signedPayload() []byte {
+	return List(u64(g.Seq), u64(g.Round), g.block())
+}
+
+// SigningPayload reproduces Preprepare.EncodePayloadForSigning byte-for-byte:
+//
+//	rlp([ Code, [Sequence, Round, Proposal] ])
+//
+// Keccak256 of this is what a validator signs, and what verifySignatures
+// ecrecovers against. Building it here (rather than encoding a decoded message)
+// keeps the engine on the wire side of the boundary throughout.
+func (g Genome) SigningPayload() []byte {
+	return List(Str([]byte{PreprepareCode}), g.signedPayload())
+}
+
+// BuildSigned renders the genome as a full PRE-PREPARE wire payload carrying the
+// supplied 65-byte signature:
+//
+//	[ [ [Seq, Round, Block], Sig ], [ [RoundChanges], [Prepares] ] ]
+func (g Genome) BuildSigned(sig []byte) []byte {
+	signed := List(g.signedPayload(), Str(sig))
 	just := List(EmptyList, List(Rep(minPrepare(), g.NPrepare)))
 	return List(signed, just)
+}
+
+// BuildPreprepare renders the genome with a zeroed placeholder signature. Use
+// BuildSigned when the message must survive verifySignatures.
+func (g Genome) BuildPreprepare() []byte {
+	return g.BuildSigned(make([]byte, 65))
 }
 
 func (g Genome) String() string {

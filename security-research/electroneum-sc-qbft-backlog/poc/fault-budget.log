@@ -1,0 +1,16 @@
+=== RUN   TestE2E_WithinByzantineFaultBudget
+
+=== E2E: SCALED TO THE BYZANTINE FAULT BUDGET ===
+  validator set        : N=13, tolerated faults f=4
+  Byzantine validators : 4 (exactly f — the protocol promises to survive this)
+  frames admitted      : 32, all signature-verified
+  global byte budget   :   512.00 MiB
+  charged              :   128.00 MiB  (25% of the global budget)
+  resident             :  4926.29 MiB
+  amplification        : x38.5
+
+    zz_e2e_faultbudget_test.go:83: FAULT-BUDGET BYPASS: 4 Byzantine validators (= f) force 4926.29 MiB resident while the global budget reports 128.00 MiB of 512 MiB used
+--- FAIL: TestE2E_WithinByzantineFaultBudget (70.80s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/core	71.136s
+FAIL
