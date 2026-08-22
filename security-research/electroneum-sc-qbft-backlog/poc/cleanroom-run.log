@@ -1,0 +1,94 @@
+
+>>> toolchain: go1.24.7
+
+>>> available memory: 15331 MiB
+
+>>> cloning electroneum-sc (this is the only network access)
+
+>>> target pinned at 17c6ffe30 — Merge pull request #82 from electroneum/fix-qbft-backlog-byte-limit
+
+>>> building (first run downloads Go modules)
+------------------------------------------------------------
+
+>>> STEP 1  Amplification of the payload engine's primitives
+------------------------------------------------------------
+== unit cost of each primitive (single-element deltas) ==
+  legacy-min       marginal: 10 encoded bytes -> 386 heap bytes  (x38.7)
+  priority-min     marginal: 18 encoded bytes -> 610 heap bytes  (x33.9)
+  dynfee-min       marginal: 15 encoded bytes -> 482 heap bytes  (x32.2)
+  accesslist-min   marginal: 14 encoded bytes -> 450 heap bytes  (x32.2)
+
+== whole-message amplification, sized near the 4 MiB per-message ceiling ==
+  legacy-min       ntx=419371   encoded=4.00 MiB  retained=153.94 MiB  amplification=x38.5
+  priority-min     ntx=232984   encoded=4.00 MiB  retained=135.69 MiB  amplification=x33.9
+  dynfee-min       ntx=279581   encoded=4.00 MiB  retained=128.23 MiB  amplification=x32.1
+  accesslist-min   ntx=299551   encoded=4.00 MiB  retained=128.07 MiB  amplification=x32.0
+
+== BEST: {kind=legacy-min ntx=419371 nuncle=0 nprep=0}  x38.5 ==
+Per-validator budget    32 MiB encoded ->   1231.5 MiB retained
+Global budget (floor)  128 MiB encoded ->   4926.2 MiB retained
+Global budget (ceil)   512 MiB encoded ->  19704.6 MiB retained
+------------------------------------------------------------
+
+>>> STEP 2  Signed PRE-PREPARE through the real ingress (+ negative control)
+------------------------------------------------------------
+
+=== E2E: SIGNED PRE-PREPARE THROUGH THE REAL INGRESS ===
+  path      : handleEncodedMsg -> Decode -> verifySignatures -> checkMessage -> addToBacklog
+  attacker  : validator 0x93052a32 (1 of 4, within QBFT's fault budget)
+  frames    : 8 x 4.00 MiB, each signed and ecrecovered to a known validator
+  charged   :    32.00 MiB   (per-sender budget 32 MiB)
+  resident  :  1231.58 MiB
+  amplified : x38.5
+
+    zz_e2e_signed_test.go:115: E2E BUDGET BYPASS: 1231.58 MiB resident against a 32 MiB per-sender budget (x38.5)
+--- FAIL: TestE2E_SignedPreprepareAmplification (16.20s)
+[control] non-validator signature rejected; backlog untouched
+--- PASS: TestE2E_ForgedSignatureIsRejected (0.12s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/core	16.453s
+FAIL
+------------------------------------------------------------
+
+>>> STEP 3  Full stack — p2p frames into a live QBFT node via Backend.HandleMsg
+------------------------------------------------------------
+
+=== E2E FULL STACK: p2p frame -> live QBFT node ===
+  node under attack : 0xB22757aa9e (validator set of 4)
+  attacker          : 0x2D7524ebf9 (holds 1 validator key)
+  frames delivered  : 8 via Backend.HandleMsg
+  bytes on the wire :    32.00 MiB   (per-sender budget 32 MiB)
+  heap resident     :  1231.58 MiB
+  amplification     : x38.5
+
+    zz_e2e_fullstack_test.go:155: E2E FULL-STACK BYPASS: 1231.58 MiB resident on a live node from 32.00 MiB of wire traffic sent by one validator whose backlog budget is 32 MiB
+--- FAIL: TestE2E_FullStack_HandleMsgAmplification (17.95s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	18.088s
+FAIL
+------------------------------------------------------------
+
+>>> STEP 4  skipped (pass --full to run the fault-budget test; needs ~8 GB)
+------------------------------------------------------------
+------------------------------------------------------------
+
+>>> STEP 5  Upstream consensus/istanbul suite (PoC tests excluded)
+------------------------------------------------------------
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.024s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.660s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	3.937s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.139s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.026s
+------------------------------------------------------------
+
+RESULT (unpatched — this is the bug)
+  A single validator sends 32.00 MiB of signed PRE-PREPARE frames, which is
+  exactly its per-sender backlog budget. Every admission check passes. The node
+  retains ~1231 MiB of heap for them: x38.5 more than the budget it was charged.
+
+  With --full: 4 Byzantine validators (= f, the faults QBFT already promises to
+  survive) force ~4926 MiB resident while the global byte budget reports only
+  128 MiB of 512 MiB used.
+
+  Re-run with --fix to see the same payloads rejected.
+------------------------------------------------------------
