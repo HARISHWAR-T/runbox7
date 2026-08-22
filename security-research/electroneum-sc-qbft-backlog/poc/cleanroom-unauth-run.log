@@ -1,7 +1,7 @@
 
 >>> toolchain: go1.24.7
 
->>> available memory: 15379 MiB
+>>> available memory: 15366 MiB
 
 >>> cloning electroneum-sc (this is the only network access)
 
@@ -35,18 +35,18 @@ Global budget (ceil)   512 MiB encoded ->  19704.6 MiB retained
 
 === E2E: SIGNED PRE-PREPARE THROUGH THE REAL INGRESS ===
   path      : handleEncodedMsg -> Decode -> verifySignatures -> checkMessage -> addToBacklog
-  attacker  : validator 0x708D1055 (1 of 4, within QBFT's fault budget)
+  attacker  : validator 0x58A047Db (1 of 4, within QBFT's fault budget)
   frames    : 8 x 4.00 MiB, each signed and ecrecovered to a known validator
   charged   :    32.00 MiB   (per-sender budget 32 MiB)
   resident  :  1231.58 MiB
   amplified : x38.5
 
     zz_e2e_signed_test.go:115: E2E BUDGET BYPASS: 1231.58 MiB resident against a 32 MiB per-sender budget (x38.5)
---- FAIL: TestE2E_SignedPreprepareAmplification (19.72s)
+--- FAIL: TestE2E_SignedPreprepareAmplification (20.07s)
 [control] non-validator signature rejected; backlog untouched
---- PASS: TestE2E_ForgedSignatureIsRejected (0.24s)
+--- PASS: TestE2E_ForgedSignatureIsRejected (0.80s)
 FAIL
-FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/core	20.081s
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/core	20.998s
 FAIL
 ------------------------------------------------------------
 
@@ -54,17 +54,17 @@ FAIL
 ------------------------------------------------------------
 
 === E2E FULL STACK: p2p frame -> live QBFT node ===
-  node under attack : 0x289aa39b68 (validator set of 4)
-  attacker          : 0xfdbD54EB14 (holds 1 validator key)
+  node under attack : 0xd20238312c (validator set of 4)
+  attacker          : 0xB61D46f1b6 (holds 1 validator key)
   frames delivered  : 8 via Backend.HandleMsg
   bytes on the wire :    32.00 MiB   (per-sender budget 32 MiB)
   heap resident     :  1231.58 MiB
   amplification     : x38.5
 
     zz_e2e_fullstack_test.go:155: E2E FULL-STACK BYPASS: 1231.58 MiB resident on a live node from 32.00 MiB of wire traffic sent by one validator whose backlog budget is 32 MiB
---- FAIL: TestE2E_FullStack_HandleMsgAmplification (17.61s)
+--- FAIL: TestE2E_FullStack_HandleMsgAmplification (19.75s)
 FAIL
-FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	17.729s
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	19.859s
 FAIL
 ------------------------------------------------------------
 
@@ -74,34 +74,34 @@ FAIL
 
 >>> STEP A  What one unauthenticated frame costs before any auth check
 ------------------------------------------------------------
-  frame  4.00 MiB ->  419371 txs decoded in  674ms,   161.16 MiB allocated
-  frame 10.00 MiB -> 1048517 txs decoded in 1.529s,   400.08 MiB allocated
---- PASS: TestUnauth_DecodeCostBeforeAnyAuthCheck (5.70s)
+  frame  4.00 MiB ->  419371 txs decoded in  646ms,   161.16 MiB allocated
+  frame 10.00 MiB -> 1048517 txs decoded in 1.522s,   400.08 MiB allocated
+--- PASS: TestUnauth_DecodeCostBeforeAnyAuthCheck (5.76s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	5.755s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	5.819s
 ------------------------------------------------------------
 
 >>> STEP B  Consensus ingress stall from a non-validator peer
 ------------------------------------------------------------
 
 === UNAUTHENTICATED PEER STALLS CONSENSUS INGRESS ===
-  attacker      : 0x7e1B9ccfA7 (NOT a validator; never checked)
+  attacker      : 0x8263C97FC0 (NOT a validator; never checked)
   frame size    : 10 MiB (eth/handler.go protocolMaxMsgSize)
   BlockPeriod   : 5s     RequestTimeout: 10s
-  legit frame, loop idle: 1.519ms
+  legit frame, loop idle: 1.721ms
 
   frames   wire sent    legit frame    vs idle
-  2        20 MiB       3.693s         x2431
-  4        40 MiB       5.19s          x3416
-  8        80 MiB       4.67s          x3074
+  2        20 MiB       3.807s         x2212
+  4        40 MiB       4.825s         x2804
+  8        80 MiB       4.262s         x2477
 
   Absolute latency is CPU-bound and varies with the host; across runs on a
   4-core container the stall sits in the 3.9-7.1s band against a 5s BlockPeriod
   and a 10s RequestTimeout. The ratio to an idle loop is the stable figure.
 
---- PASS: TestUnauth_StallsConsensusIngress (28.26s)
+--- PASS: TestUnauth_StallsConsensusIngress (27.87s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	28.350s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	27.978s
 ------------------------------------------------------------
 
 >>> STEP C  Block production degradation
@@ -110,12 +110,12 @@ ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	28.350s
 === BLOCK PRODUCTION UNDER UNAUTHENTICATED FLOOD ===
   BlockPeriod configured : 5s
   seal, no attacker      : 2ms
-  seal, one unauth peer  : 7.739s
-  degradation            : x4590.5
+  seal, one unauth peer  : 7.673s
+  degradation            : x4951.8
 
---- PASS: TestUnauth_DegradesBlockProduction (13.83s)
+--- PASS: TestUnauth_DegradesBlockProduction (13.89s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	13.912s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	13.964s
 ------------------------------------------------------------
 
 >>> STEP D  ROUND-CHANGE carries the same payload
@@ -124,20 +124,44 @@ ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	13.912s
 === ROUND-CHANGE CARRIES THE SAME PAYLOAD ===
   frame        : 10.00 MiB ROUND-CHANGE with a PreparedBlock
   decode result: failed to decode ROUND-CHANGE message
-  time         : 1.667s
+  time         : 1.621s
   allocated    : 400.11 MiB before the digest check rejected it
 
---- PASS: TestUnauth_RoundChangeAmplifiesToo (4.04s)
+--- PASS: TestUnauth_RoundChangeAmplifiesToo (3.88s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	4.100s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	3.934s
+------------------------------------------------------------
+
+>>> STEP E  Multiple keyless peers vs the QBFT round timeout
+------------------------------------------------------------
+
+=== UNAUTHENTICATED PEERS vs THE QBFT ROUND TIMEOUT ===
+  node under attack : proposer, 4-validator set
+  BlockPeriod       : 5s   (target block interval)
+  RequestTimeout    : 10s  (QBFT round timeout -> ROUND-CHANGE)
+  legit frame, idle : 1.301ms
+
+  peers    legit frame    vs BlockPeriod vs RequestTimeout
+  1        5.241s         EXCEEDED       -
+  2        4.914s         -              -
+  4        9.084s         EXCEEDED       -
+  8        15.996s        EXCEEDED       EXCEEDED -> ROUND-CHANGE
+
+  Peers cost nothing: no validator key, no stake, no allowlist entry.
+  ROUND TIMEOUT CROSSED -- the node abandons the round and sends ROUND-CHANGE,
+  which carries the same block payload (see TestUnauth_RoundChangeAmplifiesToo).
+
+--- PASS: TestUnauth_MultiPeerCrossesRoundTimeout (62.36s)
+PASS
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	62.463s
 ------------------------------------------------------------
 
 >>> STEP 5  Upstream consensus/istanbul suite (PoC tests excluded)
 ------------------------------------------------------------
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.026s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	49.596s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	4.006s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.126s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.019s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	114.120s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	4.206s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.128s
 ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.026s
 ------------------------------------------------------------
 
