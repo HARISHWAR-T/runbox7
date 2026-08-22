@@ -148,19 +148,21 @@ any point, including to test reachability.
    and peers cost nothing.
 
    ```
+   node under attack : 0x2b4846B993 (4-validator set, IsProposer=true)
+   honest sender     : 0x76DA6451b1 (real validator)
    BlockPeriod       : 5s   (target block interval)
-   RequestTimeout    : 10s  (QBFT round timeout -> ROUND-CHANGE)
-   legit frame, idle : 1.507ms
+   RequestTimeout    : 10s  (QBFT round timeout)
+   legit frame, idle : 2.062ms
 
    peers    legit frame    vs BlockPeriod vs RequestTimeout
-   1        5.538s         EXCEEDED       -
-   2        5.19s          EXCEEDED       -
-   4        9.102s         EXCEEDED       -
-   8        16.702s        EXCEEDED       EXCEEDED -> ROUND-CHANGE
+   1        5.209s         EXCEEDED       -
+   2        4.849s         -              -
+   4        8.803s         EXCEEDED       -
+   8        14.844s        EXCEEDED       EXCEEDED
    ```
 
-   Three runs at 8 peers: **16.702s / 15.7s / 15.996s** — the round timeout is
-   crossed every time. The 1–4 peer rows are noisy (a 2-peer run came in at
+   Five runs at 8 peers: **16.702s / 15.7s / 15.996s / 15.47s / 14.844s** — the
+   round timeout is crossed every time. The 1–4 peer rows are noisy (a 2-peer run came in at
    4.914s, just under `BlockPeriod`); the 8-peer result is the stable one and is
    what the claim rests on.
 
@@ -180,12 +182,19 @@ any point, including to test reachability.
 
 ## Impact
 
-Eight peers holding no key and no validator-set membership delay a proposer's
-legitimate consensus frames by 15.7–16.7s across three runs, past the 10s
+Eight peers holding no key and no validator-set membership delay a validator's
+legitimate consensus frames by 14.8–16.7s across five runs, past the 10s
 `RequestTimeoutSeconds` that bounds a QBFT round, and one such peer alone takes block production from 2ms
 to 7.6–9.4s against a 5s `BlockPeriod`. Each frame costs 1.5–3.0s of
 single-threaded CPU and 400 MiB of allocation, paid before the node knows who
 sent it.
+
+The node under attack is a validator; whether it is also the round's proposer
+varies per run, because the harness generates fresh keys each time. The run
+prints `IsProposer` rather than assuming it, and the round timeout was crossed
+with it both `true` and `false`. The attack does not depend on the target's role —
+it stalls that node's consensus ingress, and every validator has to PREPARE and
+COMMIT for a round to close.
 
 Adding cores does not help: the work is serialised behind one `sb.coreMu` and one
 `handleEvents` goroutine, so a 16-core validator has exactly the same single-lane

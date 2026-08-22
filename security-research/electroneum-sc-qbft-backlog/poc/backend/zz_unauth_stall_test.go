@@ -113,7 +113,9 @@ func TestUnauth_StallsConsensusIngress(t *testing.T) {
 	blockPeriod := time.Duration(cfg.BlockPeriod) * time.Second
 	roundTimeout := time.Duration(cfg.RequestTimeoutSeconds) * time.Second
 
-	victim := crypto.PubkeyToAddress(nodeKeys[1].PublicKey)
+	// Sender of the legitimate frame we time -- a real validator. The node under
+	// attack is `be`.
+	honestValidator := crypto.PubkeyToAddress(nodeKeys[1].PublicKey)
 
 	// The attacker is NOT a validator -- just a peer that completed a p2p
 	// handshake. eth/handler.go derives its address from the enode key and never
@@ -137,7 +139,7 @@ func TestUnauth_StallsConsensusIngress(t *testing.T) {
 	// Baseline: latency of a legitimate frame while the loop is idle.
 	var baseline time.Duration
 	for i := 0; i < 5; i++ {
-		if d := send(victim, frameWith(smallTx, uint64(90+i))); d > baseline {
+		if d := send(honestValidator, frameWith(smallTx, uint64(90+i))); d > baseline {
 			baseline = d
 		}
 	}
@@ -169,7 +171,7 @@ func TestUnauth_StallsConsensusIngress(t *testing.T) {
 
 		time.Sleep(200 * time.Millisecond)
 		seq++
-		stalled := send(victim, frameWith(smallTx, seq))
+		stalled := send(honestValidator, frameWith(smallTx, seq))
 		<-done
 
 		if stalled > worst {
