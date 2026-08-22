@@ -158,3 +158,20 @@ func (g Genome) BuildPreprepare() []byte {
 func (g Genome) String() string {
 	return fmt.Sprintf("{kind=%s ntx=%d nuncle=%d nprep=%d}", g.Kind, g.NTx, g.NUncles, g.NPrepare)
 }
+
+// RoundChangeCode is the QBFT message code for ROUND-CHANGE.
+const RoundChangeCode = 0x15
+
+// BuildRoundChangeSigned renders the genome as a ROUND-CHANGE wire payload:
+//
+//	[ [ [Sequence, Round, Prepared], Sig ], PreparedBlock, Justification ]
+//
+// ROUND-CHANGE embeds a full *types.Block in PreparedBlock, so it amplifies
+// exactly like a PRE-PREPARE's Proposal. It is also the easier of the two to
+// make "future": checkMessage treats any ROUND-CHANGE with a round above the
+// current one as a future message at the same sequence.
+func (g Genome) BuildRoundChangeSigned(sig []byte) []byte {
+	payload := List(u64(g.Seq), u64(g.Round), EmptyList) // empty Prepared
+	signed := List(payload, Str(sig))
+	return List(signed, g.block(), List(Rep(minPrepare(), g.NPrepare)))
+}

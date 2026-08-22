@@ -1,0 +1,7 @@
+=== RUN   TestE2E_WithinByzantineFaultBudget
+
+[MITIGATED] only 0/32 frames retained; resident=0.01 MiB
+
+    zz_e2e_faultbudget_test.go:68: retention accounting rejects the amplifying payload; attack precondition not met
+--- SKIP: TestE2E_WithinByzantineFaultBudget (39.81s)
+PASS
