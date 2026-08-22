@@ -1,0 +1,20 @@
+=== RUN   TestBacklogByteBudget_UnboundedGrowth
+
+=== UNBOUNDED GROWTH: one Byzantine validator, 32 MiB budget ===
+  cycle  charged (MiB)    resident (MiB)   goroutines
+  1      32.00            1231.55          10
+  2      32.00            2463.09          18
+  3      32.00            3694.64          26
+  4      32.00            4926.18          34
+  5      32.00            6157.72          42
+  6      32.00            7389.27          50
+
+  charged budget never exceeded : 32 MiB
+  resident after 6 cycles       : 7389.27 MiB
+  growth is linear in cycles -> unbounded
+
+    zz_backlog_unbounded_test.go:88: UNBOUNDED: 7389.27 MiB resident from a single sender; the global ceiling is 512 MiB and the per-sender budget is 32 MiB
+--- FAIL: TestBacklogByteBudget_UnboundedGrowth (105.85s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/core	106.314s
+FAIL

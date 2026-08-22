@@ -1,0 +1,81 @@
+diff --git a/consensus/istanbul/core/backlog.go b/consensus/istanbul/core/backlog.go
+index e6089fc..ed4a0d5 100644
+--- a/consensus/istanbul/core/backlog.go
++++ b/consensus/istanbul/core/backlog.go
+@@ -24,6 +24,7 @@ import (
+ 	"github.com/electroneum/electroneum-sc/common/prque"
+ 	"github.com/electroneum/electroneum-sc/consensus/istanbul"
+ 	qbfttypes "github.com/electroneum/electroneum-sc/consensus/istanbul/types"
++	"github.com/electroneum/electroneum-sc/core/types"
+ )
+ 
+ const (
+@@ -88,6 +89,58 @@ const (
+ 	MaxBacklogBytesTotalCeiling = 512 * 1024 * 1024
+ )
+ 
++// === Retention cost accounting =========================================
++//
++// The byte budget below must be charged in the same unit as the thing it is
++// bounding. addToBacklog retains the *decoded* message, not the wire bytes, and
++// for RLP those two quantities are not proportional: a minimally-encoded
++// transaction is 10 wire bytes but materialises ~390 bytes of Go heap
++// (types.Transaction + its TxData + one *big.Int per numeric field). A 4 MiB
++// PRE-PREPARE packed with such transactions therefore retains ~154 MiB.
++//
++// retentionCost returns a conservative estimate of the heap actually pinned by
++// a decoded message, so the budget bounds memory rather than wire size.
++
++const (
++	// heapPerTx is the measured resident cost of one decoded transaction: the
++	// Transaction wrapper (inner iface, time.Time, four atomic.Value caches), the
++	// TxData struct, and one allocation per *big.Int field. Rounded down.
++	heapPerTx = 384
++
++	// heapPerHeader is the resident cost of one decoded *types.Header, dominated
++	// by the 256-byte Bloom and the fixed-size hash fields.
++	heapPerHeader = 704
++
++	// heapPerJustification is the resident cost of one decoded Prepare or
++	// SignedRoundChangePayload in a justification array.
++	heapPerJustification = 192
++)
++
++// retentionCost estimates the heap retained by a decoded QBFT message. It is
++// charged against the byte budgets instead of the raw wire size, so that a
++// structurally amplifying payload cannot pin far more memory than it is billed
++// for. It never returns less than encodedSize.
++func retentionCost(msg qbfttypes.QBFTMessage, encodedSize int) int {
++	cost := encodedSize
++
++	structural := func(p istanbul.Proposal) int {
++		block, ok := p.(*types.Block)
++		if !ok || block == nil {
++			return 0
++		}
++		return len(block.Transactions())*heapPerTx + len(block.Uncles())*heapPerHeader
++	}
++
++	switch m := msg.(type) {
++	case *qbfttypes.Preprepare:
++		cost += structural(m.Proposal)
++		cost += (len(m.JustificationPrepares) + len(m.JustificationRoundChanges)) * heapPerJustification
++	case *qbfttypes.RoundChange:
++		cost += structural(m.PreparedBlock)
++	}
++	return cost
++}
++
+ // backlogEntry is a backlogged message together with its encoded wire size, so
+ // that byte-budget accounting stays exact across push, pop, requeue and
+ // whole-backlog eviction without re-encoding the message.
+@@ -248,6 +301,9 @@ func (c *core) addToBacklog(msg qbfttypes.QBFTMessage, encodedSize int) {
+ 
+ 	view := msg.View()
+ 
++	// Charge what the decoded message actually pins, not its wire size.
++	encodedSize = retentionCost(msg, encodedSize)
++
+ 	// Drop far-future messages (including huge ROUND-CHANGE rounds at current sequence).
+ 	if !c.withinBacklogFutureWindow(msg.Code(), view) {
+ 		logger.Trace("IBFT: dropping far-future backlog message",
