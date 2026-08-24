@@ -14,7 +14,7 @@ transactions, each carrying a valid 2F+1 quorum, with different block hashes.
 Verified with real validator keys through the engine's own `verifyCommittedSeals`.
 
 **This is not the committed-seal quorum bug.** `requiredSeals := ceil(2N/3)` is
-present and correct in this code (`consensus/istanbul/engine/engine.go:400-404`).
+present and correct in this code (`consensus/istanbul/engine/engine.go:406-409`).
 The root cause here is format selection in `core/types/istanbul.go FilteredHeader`
 — a different file and a different check.
 
@@ -141,10 +141,12 @@ chain state was used.
    because keys are generated fresh; the relationships do not.
 
 5. The second variant is not hypothetical. `verifyCommittedSeals`
-   (`engine.go:385-405`) accepts any seal count in `[ceil(2N/3), N]`. Honest nodes
-   stop at quorum — `consensus/istanbul/core/commit.go:118-122` commits the first
-   time `Size() >= QuorumSize()` — so the quorum count is predictable and can be
-   baked into the vanity in advance. A faulty proposer keeps collecting COMMITs
+   accepts any seal count in `[ceil(2N/3), N]` — the upper bound is
+   `engine.go:384-386` (`len(committedSeal) > validators.Size()`) and the lower is
+   `engine.go:406-409` (`validSeal < requiredSeals`). Honest nodes stop at quorum:
+   `consensus/istanbul/core/commit.go:123-126` calls `commitQBFT()` the first time
+   `Size() >= QuorumSize()`, so the quorum count is predictable and can be baked
+   into the vanity in advance. A faulty proposer keeps collecting COMMITs
    and emits a second variant with all N.
 
 6. **Step 3** runs the project's own suite with the PoC excluded, so the fix below
@@ -228,7 +230,7 @@ light client is connected.
 
 **"This is the known QBFT finality issue."** It is not. That one is the
 committed-seal quorum check, which is present and correct here
-(`engine.go:400-404`). This is format selection in `FilteredHeader` — different
+(`engine.go:406-409`). This is format selection in `FilteredHeader` — different
 file, different check, and the quorum fix does nothing about it.
 
 ### What I did not prove
