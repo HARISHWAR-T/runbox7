@@ -176,10 +176,19 @@ which variant the serving node imported. Explorers, indexers and exchange deposi
 crediting that key on block hash can disagree about the same confirmed
 transaction, with each side holding a cryptographically valid finality proof.
 
-A header-relay or light-client bridge is the sharpest case. Such a bridge accepts
-a header on proof of a 2F+1 quorum. Here it can be shown two different headers at
-the same height, both satisfying that proof. That is the forged-header condition
-these bridges are built to make impossible.
+The sharpest consumer ships in this tree. etn-sc supports light sync — the `les/`
+package, `downloader.LightSync`, and `--syncmode light` in
+`cmd/utils/flags.go:214`. A light client does not execute blocks; it accepts a
+header on the strength of its consensus proof. `les/fetcher.go:164` validates each
+header with `engine.VerifyHeader(chain, header, ulc == nil)`, which for this engine
+runs `verifyCommittedSeals` and checks the 2F+1 quorum.
+
+Both variants pass that check. So a light client is served whichever variant the
+full node it peered with happened to import, validates it correctly, and has no
+way to tell that a second header at the same height also satisfies the same proof.
+Two light clients on two peers accept two different final blocks for one height,
+and neither can detect it — a full node can at least compare state roots and
+re-execute, which is exactly the capability a light client gives up.
 
 ### The three objections, answered
 
@@ -240,10 +249,25 @@ pads to exactly 32 (`consensus/istanbul/engine/engine.go:684`,
 `core/genesis.go:429`, `consensus/istanbul/testutils/genesis.go:49`), so it cannot
 invalidate a historical block.
 
-The reason to do both: I tested this craft against the post-`FutureFork` 6-field
-encoding, where a non-empty `ProposerSeal` is appended as a sixth field. The craft
-dies there — the fake three-field legacy list can no longer end at the end of
-`Extra`, and the decode fails with `rlp: input contains more than one value`. So
-the filter reorder is what closes the bug on today's live 5-field format, while
-the vanity length check is the one that holds across both formats and stops the
-next variant of the same trick.
+The reason to do both is the post-`FutureFork` format. Once `FutureFork`
+activates, `QBFTExtra.EncodeRLP` appends a non-empty `ProposerSeal` as a sixth
+field, so the tail item of `Extra` becomes a **byte string**. `IstanbulExtra`'s
+third field is `CommittedSeal [][]byte`, which must be an RLP **list**. That is a
+type conflict, not a length problem, and no choice of the fake `Seal` length
+rescues it. There are only two sizings and the PoC runs both:
+
+```
+sizing 1, field 3 = real CommittedSeal  -> rlp: input list has too many elements
+                                           for struct { Validators; Seal; CommittedSeal }
+sizing 2, field 3 = ProposerSeal string -> rlp: expected input list for [][]uint8,
+                                           decoding into ...IstanbulExtra.CommittedSeal
+```
+
+Either the fake list ends at the end of `Extra` and the 67-byte `ProposerSeal`
+encoding sits inside it as a fourth element, or the fake `Seal` swallows through
+`CommittedSeal` and field three lands on a byte string where a list is required.
+This craft is structurally dead against the 6-field form for any sizing.
+
+So the filter reorder closes the bug on today's live 5-field format, and the
+vanity length check is the fix that holds across both formats — it is what stops
+the next variant of this trick rather than this specific one.

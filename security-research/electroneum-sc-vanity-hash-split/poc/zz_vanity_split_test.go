@@ -174,24 +174,57 @@ func TestVanityData_FlipsHashFilter(t *testing.T) {
 	}
 	fmt.Printf("  -> identical, so the SAME committed seals are valid for both variants\n\n")
 
-	// Does the craft survive the post-FutureFork 6-field encoding? QBFTExtra.EncodeRLP
-	// appends ProposerSeal as a 6th field when it is non-empty, which puts a byte
-	// string at the tail -- so the fake 3-field legacy list can no longer end exactly
-	// at the end of Extra.
-	withSeal, err := rlp.EncodeToBytes(&QBFTExtra{
-		VanityData: vanity, Validators: vals, Vote: nil, Round: 0,
-		CommittedSeal: quorum, ProposerSeal: bytes.Repeat([]byte{0x11}, IstanbulExtraSeal),
-	})
-	if err != nil {
-		t.Fatalf("encode with ProposerSeal: %v", err)
+	// Post-FutureFork 6-field encoding. QBFTExtra.EncodeRLP appends ProposerSeal as
+	// a sixth field when it is non-empty, so the tail item of Extra becomes a BYTE
+	// STRING. IstanbulExtra's third field is CommittedSeal [][]byte, which must be
+	// an RLP list. That is a type conflict, not a length problem: no choice of the
+	// fake Seal length rescues it. Both possible sizings are tried here.
+	ps := bytes.Repeat([]byte{0x11}, IstanbulExtraSeal)
+	sixField := func(v []byte) []byte {
+		b, err := rlp.EncodeToBytes(&QBFTExtra{
+			VanityData: v, Validators: vals, Vote: nil, Round: 0,
+			CommittedSeal: quorum, ProposerSeal: ps,
+		})
+		if err != nil {
+			t.Fatalf("encode 6-field: %v", err)
+		}
+		return b
 	}
-	_, errSeal := ExtractIstanbulExtra(mkHeader(withSeal))
-	fmt.Printf("  same vanity + non-empty ProposerSeal (post-FutureFork 6-field form):\n")
-	fmt.Printf("    legacy decode err=%v -> %s filter\n", errSeal, filterName(errSeal))
-	if errSeal == nil {
-		fmt.Printf("    craft STILL works against the 6-field form\n\n")
+	csEnc, _ := rlp.EncodeToBytes(quorum)
+	psEnc, _ := rlp.EncodeToBytes(ps)
+
+	// craft6 places the fake legacy list at Extra[32:], ending at the end of Extra,
+	// with the fake Seal sized so that field 3 begins at absolute offset field3At.
+	craft6 := func(vlen, field3At int) []byte {
+		probe := sixField(make([]byte, vlen))
+		outerHdr := rlpHdrLen(probe)
+		vanityStart := outerHdr + rlpHdrLen(probe[outerHdr:])
+		off := 32 - vanityStart
+		M := (len(probe) - 32) - 3
+		N := field3At - 32 - 7
+		if off < 0 || off+7 > vlen || M < 256 || M > 0xffff || N < 256 || N > 0xffff {
+			t.Fatalf("6-field params unusable: off=%d M=%d N=%d", off, M, N)
+		}
+		v := make([]byte, vlen)
+		copy(v[off:], []byte{0xf9, byte(M >> 8), byte(M), 0xc0, 0xb9, byte(N >> 8), byte(N)})
+		return sixField(v)
+	}
+
+	probe6 := sixField(make([]byte, vlen))
+	csStart6 := len(probe6) - len(csEnc) - len(psEnc)
+	psStart6 := len(probe6) - len(psEnc)
+
+	_, errCS := ExtractIstanbulExtra(mkHeader(craft6(vlen, csStart6)))
+	_, errPS := ExtractIstanbulExtra(mkHeader(craft6(vlen, psStart6)))
+
+	fmt.Printf("  post-FutureFork 6-field encoding (non-empty ProposerSeal):\n")
+	fmt.Printf("    sizing 1, field 3 = real CommittedSeal  -> %v\n", errCS)
+	fmt.Printf("    sizing 2, field 3 = ProposerSeal string -> %v\n", errPS)
+	if errCS == nil || errPS == nil {
+		t.Errorf("craft survives the 6-field form (errCS=%v errPS=%v)", errCS, errPS)
 	} else {
-		fmt.Printf("    craft DIES against the 6-field form (lengths no longer line up)\n\n")
+		fmt.Printf("    both fail: the tail is a byte string, CommittedSeal must be a list.\n")
+		fmt.Printf("    Structurally dead for ANY sizing, not just mis-sized.\n\n")
 	}
 
 	if hA == hB && hA == hR {

@@ -27,16 +27,18 @@
   QBFTHashWithRoundNumber(0) B : f9ed7088e6b647b3fc1f497c
   -> identical, so the SAME committed seals are valid for both variants
 
-  same vanity + non-empty ProposerSeal (post-FutureFork 6-field form):
-    legacy decode err=rlp: input contains more than one value -> QBFT filter
-    craft DIES against the 6-field form (lengths no longer line up)
+  post-FutureFork 6-field encoding (non-empty ProposerSeal):
+    sizing 1, field 3 = real CommittedSeal  -> rlp: input list has too many elements for struct { Validators []common.Address; Seal []uint8; CommittedSeal [][]uint8 }
+    sizing 2, field 3 = ProposerSeal string -> rlp: expected input list for [][]uint8, decoding into (*types.IstanbulExtra)(struct { Validators []common.Address; Seal []uint8; CommittedSeal [][]uint8 }).CommittedSeal
+    both fail: the tail is a byte string, CommittedSeal must be a list.
+    Structurally dead for ANY sizing, not just mis-sized.
 
   [MITIGATED] all variants hash identically -> no split
 
-    zz_vanity_split_test.go:199: FilteredHeader no longer lets VanityData pick the filter
+    zz_vanity_split_test.go:232: FilteredHeader no longer lets VanityData pick the filter
 --- SKIP: TestVanityData_FlipsHashFilter (0.00s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/core/types	0.016s
+ok  	github.com/electroneum/electroneum-sc/core/types	0.015s
 ------------------------------------------------------------
 
 >>> STEP 2  Real validator keys, real committed seals, both variants verified
@@ -52,25 +54,25 @@ ok  	github.com/electroneum/electroneum-sc/core/types	0.016s
                extra.Round, so a round change invalidates the seals.
                The round vector is NOT a second valid block.
 
-  Header.Hash() A : db0954512332d358611a1f49
-  Header.Hash() B : db0954512332d358611a1f49
-  seal payload    : db0954512332d358611a1f49  (identical for both)
+  Header.Hash() A : 4cfac02cd9d575ac7ad20c09
+  Header.Hash() B : 4cfac02cd9d575ac7ad20c09
+  seal payload    : 4cfac02cd9d575ac7ad20c09  (identical for both)
 
   [MITIGATED] both variants hash identically -> no split
 
     zz_vanity_split_test.go:183: FilteredHeader no longer lets VanityData pick the filter
 --- SKIP: TestVanitySplit_BothVariantsVerify (0.00s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.018s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.017s
 ------------------------------------------------------------
 
 >>> STEP 3  Upstream suite (PoC tests excluded) — the fix must not regress it
 ------------------------------------------------------------
-ok  	github.com/electroneum/electroneum-sc/core/types	1.916s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.017s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.647s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	3.654s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.112s
+ok  	github.com/electroneum/electroneum-sc/core/types	2.389s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.018s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.652s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	3.727s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.122s
 ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.023s
 ------------------------------------------------------------
 
