@@ -1,0 +1,168 @@
+diff --git a/consensus/istanbul/core/backlog.go b/consensus/istanbul/core/backlog.go
+index e6089fc..e1fb440 100644
+--- a/consensus/istanbul/core/backlog.go
++++ b/consensus/istanbul/core/backlog.go
+@@ -292,7 +292,7 @@ func (c *core) addToBacklog(msg qbfttypes.QBFTMessage, encodedSize int) {
+ 	// Global byte budget. This, not the count cap, bounds aggregate retained
+ 	// memory once individual messages can be large.
+ 	maxBytesTotal := c.maxBacklogBytesTotal()
+-	if c.backlogsBytesTotal+encodedSize > maxBytesTotal {
++	if c.backlogsBytesTotal+c.backlogsInFlightTotal+encodedSize > maxBytesTotal {
+ 		logger.Trace("IBFT: dropping backlog message (global byte budget reached)",
+ 			"cap", maxBytesTotal, "total", c.backlogsBytesTotal, "size", encodedSize,
+ 		)
+@@ -314,7 +314,7 @@ func (c *core) addToBacklog(msg qbfttypes.QBFTMessage, encodedSize int) {
+ 	}
+ 
+ 	// Per-validator byte budget
+-	if c.backlogsBytes[src]+encodedSize > MaxBacklogBytesPerValidator {
++	if c.backlogsBytes[src]+c.backlogsInFlightBySrc[src]+encodedSize > MaxBacklogBytesPerValidator {
+ 		logger.Trace("IBFT: dropping backlog message (per-validator byte budget reached)",
+ 			"src", src, "cap", MaxBacklogBytesPerValidator, "bytes", c.backlogsBytes[src], "size", encodedSize,
+ 		)
+@@ -399,11 +399,24 @@ func (c *core) processBacklog() {
+ 
+ 			logger.Trace("IBFT: post backlog event", "msg", msg)
+ 
+-			// Post backlog event for main handler loop
++			// Post backlog event for main handler loop.
++			//
++			// The message stays fully resident until handleEvents consumes it: the
++			// mux subscription channel is unbuffered, so this goroutine blocks
++			// holding msg alive while the single consumer is busy. Keep charging
++			// those bytes until then, otherwise the counters report the memory as
++			// freed at pop and admission lets the same sender re-fill against it.
++			if c.backlogsInFlightBySrc == nil {
++				c.backlogsInFlightBySrc = make(map[common.Address]int)
++			}
++			c.backlogsInFlightBySrc[srcAddress] += entry.size
++			c.backlogsInFlightTotal += entry.size
++
+ 			event := backlogEvent{
+-				src:  src,
+-				msg:  msg,
+-				size: entry.size,
++				src:      src,
++				msg:      msg,
++				size:     entry.size,
++				inFlight: true,
+ 			}
+ 			go c.sendEvent(event)
+ 		}
+@@ -465,3 +478,25 @@ func toPriority(msgCode uint64, view *istanbul.View) int64 {
+ 	// 1000 * Sequence limits the range of round is from 0 to 99
+ 	return -int64(view.Sequence.Uint64()*1000 + view.Round.Uint64()*10 + uint64(msgPriority[msgCode]))
+ }
++
++// releaseInFlight drops the in-flight charge for a backlog handoff that
++// handleEvents has now consumed. Called exactly once per event produced by
++// processBacklog, after the message has been handled (and possibly re-admitted to
++// the backlog under its own charge).
++func (c *core) releaseInFlight(src common.Address, size int) {
++	c.backlogsMu.Lock()
++	defer c.backlogsMu.Unlock()
++
++	c.backlogsInFlightTotal -= size
++	if c.backlogsInFlightTotal < 0 {
++		c.backlogsInFlightTotal = 0
++	}
++	if c.backlogsInFlightBySrc == nil {
++		return
++	}
++	if remaining := c.backlogsInFlightBySrc[src] - size; remaining > 0 {
++		c.backlogsInFlightBySrc[src] = remaining
++	} else {
++		delete(c.backlogsInFlightBySrc, src)
++	}
++}
+diff --git a/consensus/istanbul/core/core.go b/consensus/istanbul/core/core.go
+index 7fb987a..2cec986 100644
+--- a/consensus/istanbul/core/core.go
++++ b/consensus/istanbul/core/core.go
+@@ -41,20 +41,21 @@ var (
+ // New creates an Istanbul consensus core
+ func New(backend istanbul.Backend, config *istanbul.Config) istanbul.Core {
+ 	c := &core{
+-		config:             config,
+-		address:            backend.Address(),
+-		state:              StateAcceptRequest,
+-		handlerWg:          new(sync.WaitGroup),
+-		logger:             log.New("address", backend.Address()),
+-		cleanLogger:        log.New(),
+-		backend:            backend,
+-		backlogs:           make(map[common.Address]*prque.Prque),
+-		backlogsBytes:      make(map[common.Address]int),
+-		backlogsMu:         new(sync.Mutex),
+-		pendingRequests:    prque.New(nil),
+-		pendingRequestsMu:  new(sync.Mutex),
+-		consensusTimestamp: time.Time{},
+-		currentMutex:       new(sync.Mutex),
++		config:                config,
++		address:               backend.Address(),
++		state:                 StateAcceptRequest,
++		handlerWg:             new(sync.WaitGroup),
++		logger:                log.New("address", backend.Address()),
++		cleanLogger:           log.New(),
++		backend:               backend,
++		backlogs:              make(map[common.Address]*prque.Prque),
++		backlogsBytes:         make(map[common.Address]int),
++		backlogsInFlightBySrc: make(map[common.Address]int),
++		backlogsMu:            new(sync.Mutex),
++		pendingRequests:       prque.New(nil),
++		pendingRequestsMu:     new(sync.Mutex),
++		consensusTimestamp:    time.Time{},
++		currentMutex:          new(sync.Mutex),
+ 	}
+ 
+ 	c.validateFn = c.checkValidatorSignature
+@@ -87,6 +88,13 @@ type core struct {
+ 	// message-count caps. Kept in lockstep with backlogs under backlogsMu.
+ 	backlogsBytes      map[common.Address]int
+ 	backlogsBytesTotal int
++	// backlogsInFlight* track bytes that processBacklog has popped and handed to a
++	// sendEvent goroutine but that handleEvents has not consumed yet. Those
++	// messages are still fully resident, so admission must keep counting them;
++	// without this the budget frees a message at pop and the same sender can
++	// immediately re-fill against memory that has not been released.
++	backlogsInFlightBySrc map[common.Address]int
++	backlogsInFlightTotal int
+ 
+ 	current      *roundState
+ 	currentMutex *sync.Mutex
+diff --git a/consensus/istanbul/core/events.go b/consensus/istanbul/core/events.go
+index dbda8c7..a8ddc26 100644
+--- a/consensus/istanbul/core/events.go
++++ b/consensus/istanbul/core/events.go
+@@ -28,6 +28,11 @@ type backlogEvent struct {
+ 	// message is still a future message it can be re-charged against the
+ 	// backlog byte budget from its own size rather than a stale count estimate.
+ 	size int
++	// inFlight marks an event produced by processBacklog's handoff, whose bytes
++	// are charged to the in-flight budget until handleEvents consumes it. Events
++	// injected from elsewhere (the future-PRE-PREPARE timer in preprepare.go) were
++	// never popped from a backlog and must not release a charge they never made.
++	inFlight bool
+ }
+ 
+ type timeoutEvent struct {
+diff --git a/consensus/istanbul/core/handler.go b/consensus/istanbul/core/handler.go
+index 0c64c32..ccb513f 100644
+--- a/consensus/istanbul/core/handler.go
++++ b/consensus/istanbul/core/handler.go
+@@ -132,7 +132,15 @@ func (c *core) handleEvents() {
+ 				// This message was already charged against the backlog byte budget when
+ 				// first admitted and has since been popped, so if it re-backlogs it is
+ 				// re-charged from its own encoded size; pass ev.size as its charge.
+-				if err := c.handleDecodedMessage(ev.msg, ev.size); err != nil {
++				err := c.handleDecodedMessage(ev.msg, ev.size)
++				// Release the in-flight charge only after handling: if the message
++				// re-backlogs, addToBacklog re-charges it from its own size, and
++				// releasing first would leave a window where it is charged to
++				// neither budget.
++				if ev.inFlight {
++					c.releaseInFlight(ev.src.Address(), ev.size)
++				}
++				if err != nil {
+ 					continue
+ 				}
+ 

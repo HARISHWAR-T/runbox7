@@ -1,0 +1,70 @@
+
+>>> toolchain: go1.24.7
+
+>>> cloning electroneum-sc (only network access in this script)
+
+>>> target pinned at 17c6ffe30 — Merge pull request #82 from electroneum/fix-qbft-backlog-byte-limit
+
+>>> building (first run downloads Go modules)
+------------------------------------------------------------
+
+>>> STEP 1  Fill the budget, drain it, watch the counters vs the heap
+------------------------------------------------------------
+
+=== BACKLOG BUDGET STOPS COUNTING AT POP, NOT AT RELEASE ===
+  per-sender budget: 32 MiB, 8 messages of 4 MiB
+
+                         charged (MiB)    resident (MiB)
+  after fill             32.00            32.04
+  after processBacklog   0.00             32.01   (8 goroutines blocked on the unbuffered mux)
+  after re-fill          32.00            64.05   (8/8 re-admitted)
+
+    zz_inflight_accounting_test.go:133: BUDGET STOPS COUNTING TOO EARLY: 64.05 MiB resident for one sender whose per-sender budget is 32 MiB. The drained batch is still held by 8 blocked handoff goroutines but is charged to nobody.
+--- FAIL: TestBacklogAccounting_InFlightUncharged (0.18s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/core	0.205s
+FAIL
+------------------------------------------------------------
+
+>>> STEP 2  Upstream consensus/istanbul suite (PoC excluded)
+------------------------------------------------------------
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.017s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.654s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	2.701s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.085s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.021s
+------------------------------------------------------------
+
+>>> STEP 3  The project's own backlog accounting tests, by name
+------------------------------------------------------------
+--- PASS: TestAddToBacklog_RejectsOversizedFutureRoundChange (0.00s)
+--- PASS: TestAddToBacklog_RejectsOversizedFuturePreprepare (0.00s)
+--- PASS: TestAddToBacklog_AcceptsRealisticFuturePreprepare (0.00s)
+--- PASS: TestAddToBacklog_PerValidatorByteBudget (0.08s)
+--- PASS: TestProcessBacklog_ByteAccountingIsExact (0.00s)
+--- PASS: TestAddToBacklog_AcceptsValidFutureMessage (0.00s)
+--- PASS: TestAddToBacklog_RejectsMessageFromSelf (0.00s)
+--- PASS: TestAddToBacklog_RejectsNonValidator (0.00s)
+--- PASS: TestAddToBacklog_RejectsFarFutureMessage (0.00s)
+--- PASS: TestAddToBacklog_EnforcesPerValidatorCap (0.01s)
+--- PASS: TestAddToBacklog_EnforcesGlobalCap (0.04s)
+--- PASS: TestAddToBacklog_RejectsExcessiveRoundChangeRound (0.00s)
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	0.148s
+------------------------------------------------------------
+
+RESULT (unpatched — this is the bug)
+  The PoC test FAILS, and that failure is the finding:
+
+    after fill             charged 32.00 MiB   resident 32.04 MiB
+    after processBacklog   charged  0.00 MiB   resident 32.01 MiB   (8 goroutines blocked)
+    after re-fill          charged 32.00 MiB   resident 64.05 MiB   (8/8 re-admitted)
+
+  The budget reports the memory as freed at pop. It has not been freed - it is
+  held by the handoff goroutines, blocked on the unbuffered mux. One sender
+  therefore holds twice its per-sender budget.
+
+  Payloads here are flat Header.Extra bytes, so encoded size and resident size
+  are 1:1. This is an accounting bug, not an amplification bug.
+
+  Re-run with --fix to see it neutralised.
+------------------------------------------------------------

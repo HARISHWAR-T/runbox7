@@ -1,0 +1,61 @@
+
+>>> toolchain: go1.24.7
+
+>>> target pinned at 17c6ffe30 — Merge pull request #82 from electroneum/fix-qbft-backlog-byte-limit
+
+>>> applying backlog-charge-until-consumed.patch
+
+>>> building (first run downloads Go modules)
+------------------------------------------------------------
+
+>>> STEP 1  Fill the budget, drain it, watch the counters vs the heap
+------------------------------------------------------------
+
+=== BACKLOG BUDGET STOPS COUNTING AT POP, NOT AT RELEASE ===
+  per-sender budget: 32 MiB, 8 messages of 4 MiB
+
+                         charged (MiB)    resident (MiB)
+  after fill             32.00            32.04
+  after processBacklog   0.00             32.01   (8 goroutines blocked on the unbuffered mux)
+  after re-fill          0.00             32.05   (0/8 re-admitted)
+
+  [MITIGATED] only 0/8 re-admitted; the budget accounts for in-flight bytes
+
+    zz_inflight_accounting_test.go:129: in-flight messages are now accounted for
+--- SKIP: TestBacklogAccounting_InFlightUncharged (0.12s)
+PASS
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	0.137s
+------------------------------------------------------------
+
+>>> STEP 2  Upstream consensus/istanbul suite (PoC excluded)
+------------------------------------------------------------
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.012s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.615s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	2.712s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.090s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.020s
+------------------------------------------------------------
+
+>>> STEP 3  The project's own backlog accounting tests, by name
+------------------------------------------------------------
+--- PASS: TestAddToBacklog_RejectsOversizedFutureRoundChange (0.00s)
+--- PASS: TestAddToBacklog_RejectsOversizedFuturePreprepare (0.00s)
+--- PASS: TestAddToBacklog_AcceptsRealisticFuturePreprepare (0.01s)
+--- PASS: TestAddToBacklog_PerValidatorByteBudget (0.06s)
+--- PASS: TestProcessBacklog_ByteAccountingIsExact (0.00s)
+--- PASS: TestAddToBacklog_AcceptsValidFutureMessage (0.00s)
+--- PASS: TestAddToBacklog_RejectsMessageFromSelf (0.00s)
+--- PASS: TestAddToBacklog_RejectsNonValidator (0.00s)
+--- PASS: TestAddToBacklog_RejectsFarFutureMessage (0.00s)
+--- PASS: TestAddToBacklog_EnforcesPerValidatorCap (0.00s)
+--- PASS: TestAddToBacklog_EnforcesGlobalCap (0.03s)
+--- PASS: TestAddToBacklog_RejectsExcessiveRoundChangeRound (0.00s)
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	0.128s
+------------------------------------------------------------
+
+RESULT (fix applied)
+  The drained batch stays charged until handleEvents consumes it, so the sender
+  is re-admitted 0/8 instead of 8/8 and resident memory stays at one budget
+  instead of two. Steps 2 and 3 are still green, including the project's own
+  TestProcessBacklog_ByteAccountingIsExact.
+------------------------------------------------------------
