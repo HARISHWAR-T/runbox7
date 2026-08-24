@@ -1,0 +1,28 @@
+Public Key in Hex: 04efb99d9860f4dec4cb548a5722c27e9ef58e37fbab9719c5b33d55c216db49311221a01f638ce5f255875b194e0acaa58b19a89d2e56a864427298f826a7f887
+Public Key in Hex: 047409b5751867a7a4ac4b3b4358c3f87d97a339b2ab0943217e5dec9aebc10938de4bb7447c26f2eaf4e39417976480b30d2b5c60baccaeb08971840f3bbc282f
+Public Key in Hex: 04d043a6e03dc0c70bedfb790451502096589cf9c9ecaca2b8d40f7e27091bfcef928f15cdb51a385b4e254cb783e1056d25672bac4dce18f855600d0a6e8720eb
+Public Key in Hex: 044925e5848b977e91a1c797cf3603919d7a0ad00b5e41a79233db53d953e2d78dcfd95a96f7767b41ba907da6892e4bd0f50146b9d4741ea0328e5e378e8573c9
+Public Key in Hex: 04ac7df61af75c6ee0f937e6dfbb570fccb219186a36c4c4727276f737272f2394c6132ad2cdc927930c8b264aea505fa7e420929d8e8f068098a1d821ca162c88
+Public Key in Hex: 0469278e0ad14e2fe1215903b7fd734ec91abfd7c4770827371876dddff899991fa3493f8b64844b50d975d0024facf273dd9af52acd8860344743397bb12faa26
+Public Key in Hex: 04b2613fc01c8d39c6d219e245b2416bde0201ec99d4f63b612e170599bafccbf70c3e9df3c19d2f01e3525b802f71ab4a43cca55c59e696b5c59461877ee70440
+Public Key in Hex: 04b4cfcaca58e8007f10b87be58e412bb6e4b3390de9a4ba4e351ab1d77ec0f1f85db541aee766aa04066d209d9c7fc359a5f5c3344d1560f2b28b3fa24e38023f
+Public Key in Hex: 047b8e3f6bfe2c2bf37cc241cd87a10fa983a46c7b01de781b6adec0cfa04234e9339d53b715342a4caf90365330679758124f6ef410e9a0909a4bfbd1b5f78426
+Public Key in Hex: 0433dcd2d7fa4a1f14908db9e94fa545c50b8353f8fce58c19fbc160facd1eef521d3b47b3059a2d5b8016d7cfa88306b1b8d39fae141bbdcfe42a569d192c0525
+=== RUN   TestRegistryRefresh_FullBlockImpact
+
+=== FULL 30M-GAS BLOCK OF REGISTRY-ADDRESSED TRANSFERS ===
+  1428 txs x 21000 gas; QBFT BlockPeriod=5s, RequestTimeout=10s
+
+  registry           to-decoy     attack block   factor    vs 5s period
+  16 transactors     12ms         216ms          x17.7     -
+  64 transactors     14ms         487ms          x34.6     -
+  256 transactors    15ms         1.546s         x103.9    >1s
+  1024 transactors   16ms         5.145s         x317.3    EXCEEDS BlockPeriod
+
+  Attacker cost: one block's worth of base fee. Every tx fails out of gas.
+  The proposer pays this twice (miner/worker.go:953 refreshes again on top
+  of the refresh already done inside core.ApplyTransaction).
+
+--- PASS: TestRegistryRefresh_FullBlockImpact (47.57s)
+PASS
+ok  	github.com/electroneum/electroneum-sc/core	47.644s
