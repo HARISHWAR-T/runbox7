@@ -190,6 +190,15 @@ Two light clients on two peers accept two different final blocks for one height,
 and neither can detect it — a full node can at least compare state roots and
 re-execute, which is exactly the capability a light client gives up.
 
+There is no light-client configuration that avoids this.
+`Backend.VerifyHeader(chain, header, seal bool)`
+(`consensus/istanbul/backend/engine.go:65-67`) accepts the `seal` bool and
+discards it — the body is `return sb.verifyHeader(chain, header, nil)`. So the
+`ulc == nil` argument in `les/fetcher.go:164`, whose whole purpose is to let ULC
+mode skip seal verification, has no effect on this engine. Seal verification is
+unconditional here, which means every light client validates the quorum, and every
+light client therefore accepts whichever variant it was served.
+
 ### The three objections, answered
 
 **"Our validators are permissioned and vetted."** QBFT's guarantee is safety with
@@ -207,6 +216,15 @@ any `Extra` of 32+ bytes to already be valid QBFT RLP, and a working craft needs
 hundreds of bytes. So no stock node and no misconfiguration produces this. A
 validator running modified code is what "faulty" means in the fault model, and it
 is what a host compromise gives you.
+
+**"Nobody runs light clients on our chain."** Possibly true today, and it does
+not change the finding. The `les` server and `--syncmode light` ship in this
+release and a documented flag turns them on, so the exposure is a config change
+away rather than a code change away. More to the point, the finality violation
+between full nodes is the bug; the light client is simply the consumer that has no
+way to defend itself, not the reason the bug matters. Two full nodes holding
+conflicting final headers for one height is the finding whether or not a single
+light client is connected.
 
 **"This is the known QBFT finality issue."** It is not. That one is the
 committed-seal quorum check, which is present and correct here
@@ -254,13 +272,11 @@ activates, `QBFTExtra.EncodeRLP` appends a non-empty `ProposerSeal` as a sixth
 field, so the tail item of `Extra` becomes a **byte string**. `IstanbulExtra`'s
 third field is `CommittedSeal [][]byte`, which must be an RLP **list**. That is a
 type conflict, not a length problem, and no choice of the fake `Seal` length
-rescues it. There are only two sizings and the PoC runs both:
+rescues it. There are only two sizings and the PoC runs both. Verbatim from the run:
 
 ```
-sizing 1, field 3 = real CommittedSeal  -> rlp: input list has too many elements
-                                           for struct { Validators; Seal; CommittedSeal }
-sizing 2, field 3 = ProposerSeal string -> rlp: expected input list for [][]uint8,
-                                           decoding into ...IstanbulExtra.CommittedSeal
+    sizing 1, field 3 = real CommittedSeal  -> rlp: input list has too many elements for struct { Validators []common.Address; Seal []uint8; CommittedSeal [][]uint8 }
+    sizing 2, field 3 = ProposerSeal string -> rlp: expected input list for [][]uint8, decoding into (*types.IstanbulExtra)(struct { Validators []common.Address; Seal []uint8; CommittedSeal [][]uint8 }).CommittedSeal
 ```
 
 Either the fake list ends at the end of `Extra` and the 67-byte `ProposerSeal`
