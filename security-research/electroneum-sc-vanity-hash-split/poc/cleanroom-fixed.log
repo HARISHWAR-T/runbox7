@@ -1,0 +1,73 @@
+
+>>> toolchain: go1.24.7
+
+>>> target pinned at 17c6ffe30 — Merge pull request #82 from electroneum/fix-qbft-backlog-byte-limit
+
+>>> applying filtered-header-prefer-qbft.patch
+
+>>> building (first run downloads Go modules)
+------------------------------------------------------------
+
+>>> STEP 1  VanityData decides which filter Header.Hash() uses
+------------------------------------------------------------
+
+=== VANITY-CONTROLLED HASH FILTER ===
+  control: 32-byte vanity  -> legacy decode fails -> QBFT filter
+  crafted: 400-byte vanity  -> legacy decode SUCCEEDS -> legacy filter
+
+  variant A (3 seals, round 0): legacy decode err=<nil> -> LEGACY filter
+  variant B (4 seals, round 0): legacy decode err=rlp: element is larger than containing list -> QBFT filter
+  variant R (3 seals, round 1): legacy decode err=<nil> -> LEGACY filter
+
+  Header.Hash() A : f9ed7088e6b647b3fc1f497c
+  Header.Hash() B : f9ed7088e6b647b3fc1f497c
+  Header.Hash() R : f9ed7088e6b647b3fc1f497c
+
+  QBFTHashWithRoundNumber(0) A : f9ed7088e6b647b3fc1f497c
+  QBFTHashWithRoundNumber(0) B : f9ed7088e6b647b3fc1f497c
+  -> identical, so the SAME committed seals are valid for both variants
+
+  [MITIGATED] all variants hash identically -> no split
+
+    zz_vanity_split_test.go:178: FilteredHeader no longer lets VanityData pick the filter
+--- SKIP: TestVanityData_FlipsHashFilter (0.00s)
+PASS
+ok  	github.com/electroneum/electroneum-sc/core/types	0.013s
+------------------------------------------------------------
+
+>>> STEP 2  Real validator keys, real committed seals, both variants verified
+------------------------------------------------------------
+
+=== ONE BLOCK, TWO VALID HASHES ===
+  validators=4, quorum=3, seals signed by real keys
+
+  variant A: 3 committed seals -> verifyCommittedSeals = <nil>
+  variant B: 4 committed seals -> verifyCommittedSeals = <nil>
+
+  Header.Hash() A : e6eb6edc941d481a3905e3cd
+  Header.Hash() B : e6eb6edc941d481a3905e3cd
+  seal payload    : e6eb6edc941d481a3905e3cd  (identical for both)
+
+  [MITIGATED] both variants hash identically -> no split
+
+    zz_vanity_split_test.go:158: FilteredHeader no longer lets VanityData pick the filter
+--- SKIP: TestVanitySplit_BothVariantsVerify (0.00s)
+PASS
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.015s
+------------------------------------------------------------
+
+>>> STEP 3  Upstream suite (PoC tests excluded) — the fix must not regress it
+------------------------------------------------------------
+ok  	github.com/electroneum/electroneum-sc/core/types	1.753s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.015s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.633s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	2.952s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.097s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.026s
+------------------------------------------------------------
+
+RESULT (fix applied)
+  Both PoC tests report [MITIGATED] and skip: every variant of the block now
+  hashes identically, because FilteredHeader no longer lets the extra-data
+  contents choose the hashing rule. The upstream suite above is still green.
+------------------------------------------------------------

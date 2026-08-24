@@ -1,0 +1,38 @@
+diff --git a/core/types/istanbul.go b/core/types/istanbul.go
+index 8983eb6..c11de28 100644
+--- a/core/types/istanbul.go
++++ b/core/types/istanbul.go
+@@ -89,13 +89,28 @@ func ExtractIstanbulExtra(h *Header) (*IstanbulExtra, error) {
+ // are clean to fulfill the Istanbul hash rules. It first check if the extradata can be extracted into IstanbulExtra if that fails,
+ // it extracts extradata into QBFTExtra struct
+ func FilteredHeader(h *Header) *Header {
+-	// Check if the header extradata can be decoded in IstanbulExtra, if yes, then call IstanbulFilteredHeader()
+-	// if not then call QBFTFilteredHeader()
+-	_, err := ExtractIstanbulExtra(h)
+-	if err != nil {
++	// Prefer the QBFT interpretation.
++	//
++	// The legacy check must NOT come first. ExtractIstanbulExtra decodes
++	// h.Extra[IstanbulExtraVanity:], i.e. the extra-data with its first 32 bytes
++	// removed. For a QBFT header those 32 bytes fall inside VanityData whenever
++	// the vanity is longer than 32 bytes, so a proposer that chooses its own
++	// vanity decides which filter runs. The legacy filter keeps Round and its
++	// framing varies with the committed-seal count, both of which QBFT excludes
++	// from the block hash - so that choice changes the hash of an otherwise
++	// identical block.
++	//
++	// A well-formed QBFT header always decodes as QBFT, and a legacy IBFT header
++	// never does (its extra-data is 32 raw vanity bytes followed by the RLP, which
++	// is not a single RLP item spanning the whole field). Trying QBFT first is
++	// therefore both safe for legacy blocks and immune to vanity control.
++	if _, err := ExtractQBFTExtra(h); err == nil {
+ 		return QBFTFilteredHeader(h)
+ 	}
+-	return IstanbulFilteredHeader(h, true)
++	if _, err := ExtractIstanbulExtra(h); err == nil {
++		return IstanbulFilteredHeader(h, true)
++	}
++	return QBFTFilteredHeader(h)
+ }
+ 
+ // IstanbulFilteredHeader returns a filtered header which some information (like seal, committed seals)

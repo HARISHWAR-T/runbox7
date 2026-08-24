@@ -173,17 +173,18 @@ func TestVanityData_FlipsHashFilter(t *testing.T) {
 	}
 	fmt.Printf("  -> identical, so the SAME committed seals are valid for both variants\n\n")
 
-	if hA == hB {
-		t.Error("seal count did not change Header.Hash()")
-	} else {
-		fmt.Printf("  SPLIT: same block, same valid seals, two different block hashes\n")
+	if hA == hB && hA == hR {
+		fmt.Printf("  [MITIGATED] all variants hash identically -> no split\n\n")
+		t.Skip("FilteredHeader no longer lets VanityData pick the filter")
 	}
-	if hA == hR {
-		t.Error("round did not change Header.Hash()")
-	} else {
-		fmt.Printf("  SPLIT: same prepared block re-proposed at round 1 hashes differently\n")
+
+	// Red on unpatched code: that failure IS the finding.
+	if hA != hB {
+		t.Errorf("SPLIT: seal count changes Header.Hash() (%x vs %x) while the seal payload is identical", hA[:8], hB[:8])
 	}
-	fmt.Println()
+	if hA != hR {
+		t.Errorf("SPLIT: round changes Header.Hash() (%x vs %x) for the same prepared block", hA[:8], hR[:8])
+	}
 }
 
 func filterName(err error) string {

@@ -154,9 +154,13 @@ func TestVanitySplit_BothVariantsVerify(t *testing.T) {
 		t.Fatalf("a variant failed verification (A=%v B=%v): no split", errA, errB)
 	}
 	if hA == hB {
-		t.Fatalf("both variants hash identically: no split")
+		fmt.Printf("  [MITIGATED] both variants hash identically -> no split\n\n")
+		t.Skip("FilteredHeader no longer lets VanityData pick the filter")
 	}
-	fmt.Printf("  BOTH VERIFY, HASHES DIFFER -> the same finalized block exists under\n")
-	fmt.Printf("  two distinct valid hashes. Honest nodes that receive different\n")
-	fmt.Printf("  variants disagree on the canonical head at the same height.\n\n")
+
+	// Red on unpatched code: that failure IS the finding.
+	t.Errorf("CONSENSUS SPLIT: one block, two valid hashes. "+
+		"variant A (%d seals) hash=%x and variant B (%d seals) hash=%x both pass "+
+		"verifyCommittedSeals against the same seal payload %x",
+		quorum, hA[:8], n, hB[:8], PrepareCommittedSeal(variantA, 0)[:8])
 }

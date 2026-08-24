@@ -1,0 +1,80 @@
+
+>>> toolchain: go1.24.7
+
+>>> cloning electroneum-sc (only network access in this script)
+
+>>> target pinned at 17c6ffe30 — Merge pull request #82 from electroneum/fix-qbft-backlog-byte-limit
+
+>>> building (first run downloads Go modules)
+------------------------------------------------------------
+
+>>> STEP 1  VanityData decides which filter Header.Hash() uses
+------------------------------------------------------------
+
+=== VANITY-CONTROLLED HASH FILTER ===
+  control: 32-byte vanity  -> legacy decode fails -> QBFT filter
+  crafted: 400-byte vanity  -> legacy decode SUCCEEDS -> legacy filter
+
+  variant A (3 seals, round 0): legacy decode err=<nil> -> LEGACY filter
+  variant B (4 seals, round 0): legacy decode err=rlp: element is larger than containing list -> QBFT filter
+  variant R (3 seals, round 1): legacy decode err=<nil> -> LEGACY filter
+
+  Header.Hash() A : 994e69a91220f52e0947d98b
+  Header.Hash() B : f9ed7088e6b647b3fc1f497c
+  Header.Hash() R : da4e77eb975a2c3e60699e81
+
+  QBFTHashWithRoundNumber(0) A : f9ed7088e6b647b3fc1f497c
+  QBFTHashWithRoundNumber(0) B : f9ed7088e6b647b3fc1f497c
+  -> identical, so the SAME committed seals are valid for both variants
+
+    zz_vanity_split_test.go:183: SPLIT: seal count changes Header.Hash() (994e69a91220f52e vs f9ed7088e6b647b3) while the seal payload is identical
+    zz_vanity_split_test.go:186: SPLIT: round changes Header.Hash() (994e69a91220f52e vs da4e77eb975a2c3e) for the same prepared block
+--- FAIL: TestVanityData_FlipsHashFilter (0.00s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/core/types	0.014s
+FAIL
+------------------------------------------------------------
+
+>>> STEP 2  Real validator keys, real committed seals, both variants verified
+------------------------------------------------------------
+
+=== ONE BLOCK, TWO VALID HASHES ===
+  validators=4, quorum=3, seals signed by real keys
+
+  variant A: 3 committed seals -> verifyCommittedSeals = <nil>
+  variant B: 4 committed seals -> verifyCommittedSeals = <nil>
+
+  Header.Hash() A : 70fb6dccc8a6cd5b89389873
+  Header.Hash() B : bc5c65caac5fc488fb31c187
+  seal payload    : bc5c65caac5fc488fb31c187  (identical for both)
+
+    zz_vanity_split_test.go:162: CONSENSUS SPLIT: one block, two valid hashes. variant A (3 seals) hash=70fb6dccc8a6cd5b and variant B (4 seals) hash=bc5c65caac5fc488 both pass verifyCommittedSeals against the same seal payload bc5c65caac5fc488
+--- FAIL: TestVanitySplit_BothVariantsVerify (0.00s)
+FAIL
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.015s
+FAIL
+------------------------------------------------------------
+
+>>> STEP 3  Upstream suite (PoC tests excluded) — the fix must not regress it
+------------------------------------------------------------
+ok  	github.com/electroneum/electroneum-sc/core/types	1.713s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.017s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.628s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	2.897s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.089s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.023s
+------------------------------------------------------------
+
+RESULT (unpatched — this is the bug)
+  Both PoC tests FAIL. That failure is the finding, not a broken harness:
+
+    STEP 1  the same header hashes three different ways depending on a value
+            the proposer chooses (its own VanityData), while the QBFT rule says
+            all three must hash the same.
+
+    STEP 2  two variants of one block, carrying committed seals signed by real
+            validator keys over a byte-identical seal payload, BOTH pass
+            verifyCommittedSeals and have DIFFERENT block hashes.
+
+  Re-run with --fix to see both neutralised.
+------------------------------------------------------------
