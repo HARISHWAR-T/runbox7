@@ -27,11 +27,15 @@
   QBFTHashWithRoundNumber(0) B : f9ed7088e6b647b3fc1f497c
   -> identical, so the SAME committed seals are valid for both variants
 
-    zz_vanity_split_test.go:183: SPLIT: seal count changes Header.Hash() (994e69a91220f52e vs f9ed7088e6b647b3) while the seal payload is identical
-    zz_vanity_split_test.go:186: SPLIT: round changes Header.Hash() (994e69a91220f52e vs da4e77eb975a2c3e) for the same prepared block
+  same vanity + non-empty ProposerSeal (post-FutureFork 6-field form):
+    legacy decode err=rlp: input contains more than one value -> QBFT filter
+    craft DIES against the 6-field form (lengths no longer line up)
+
+    zz_vanity_split_test.go:204: SPLIT: seal count changes Header.Hash() (994e69a91220f52e vs f9ed7088e6b647b3) while the seal payload is identical
+    zz_vanity_split_test.go:214: RULE VIOLATION (not a second valid block): round changes Header.Hash() (994e69a91220f52e vs da4e77eb975a2c3e)
 --- FAIL: TestVanityData_FlipsHashFilter (0.00s)
 FAIL
-FAIL	github.com/electroneum/electroneum-sc/core/types	0.014s
+FAIL	github.com/electroneum/electroneum-sc/core/types	0.015s
 FAIL
 ------------------------------------------------------------
 
@@ -43,26 +47,30 @@ FAIL
 
   variant A: 3 committed seals -> verifyCommittedSeals = <nil>
   variant B: 4 committed seals -> verifyCommittedSeals = <nil>
+  variant R: round bumped to 1   -> verifyCommittedSeals = invalid committed seals
+             ^ EXPECTED to fail: Signers() derives the seal payload from
+               extra.Round, so a round change invalidates the seals.
+               The round vector is NOT a second valid block.
 
-  Header.Hash() A : 70fb6dccc8a6cd5b89389873
-  Header.Hash() B : bc5c65caac5fc488fb31c187
-  seal payload    : bc5c65caac5fc488fb31c187  (identical for both)
+  Header.Hash() A : 03b1ecba0fa8156c2c9b29bf
+  Header.Hash() B : f96c86b6b9311efdc0b6804c
+  seal payload    : f96c86b6b9311efdc0b6804c  (identical for both)
 
-    zz_vanity_split_test.go:162: CONSENSUS SPLIT: one block, two valid hashes. variant A (3 seals) hash=70fb6dccc8a6cd5b and variant B (4 seals) hash=bc5c65caac5fc488 both pass verifyCommittedSeals against the same seal payload bc5c65caac5fc488
+    zz_vanity_split_test.go:187: CONSENSUS SPLIT: one block, two valid hashes. variant A (3 seals) hash=03b1ecba0fa8156c and variant B (4 seals) hash=f96c86b6b9311efd both pass verifyCommittedSeals against the same seal payload f96c86b6b9311efd
 --- FAIL: TestVanitySplit_BothVariantsVerify (0.00s)
 FAIL
-FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.015s
+FAIL	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.016s
 FAIL
 ------------------------------------------------------------
 
 >>> STEP 3  Upstream suite (PoC tests excluded) — the fix must not regress it
 ------------------------------------------------------------
-ok  	github.com/electroneum/electroneum-sc/core/types	1.713s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.017s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.628s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	2.897s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.089s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.023s
+ok  	github.com/electroneum/electroneum-sc/core/types	1.941s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.019s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.657s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	3.605s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.125s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.025s
 ------------------------------------------------------------
 
 RESULT (unpatched — this is the bug)

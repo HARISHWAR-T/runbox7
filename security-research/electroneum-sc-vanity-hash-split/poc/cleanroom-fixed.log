@@ -27,12 +27,16 @@
   QBFTHashWithRoundNumber(0) B : f9ed7088e6b647b3fc1f497c
   -> identical, so the SAME committed seals are valid for both variants
 
+  same vanity + non-empty ProposerSeal (post-FutureFork 6-field form):
+    legacy decode err=rlp: input contains more than one value -> QBFT filter
+    craft DIES against the 6-field form (lengths no longer line up)
+
   [MITIGATED] all variants hash identically -> no split
 
-    zz_vanity_split_test.go:178: FilteredHeader no longer lets VanityData pick the filter
+    zz_vanity_split_test.go:199: FilteredHeader no longer lets VanityData pick the filter
 --- SKIP: TestVanityData_FlipsHashFilter (0.00s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/core/types	0.013s
+ok  	github.com/electroneum/electroneum-sc/core/types	0.016s
 ------------------------------------------------------------
 
 >>> STEP 2  Real validator keys, real committed seals, both variants verified
@@ -43,27 +47,31 @@ ok  	github.com/electroneum/electroneum-sc/core/types	0.013s
 
   variant A: 3 committed seals -> verifyCommittedSeals = <nil>
   variant B: 4 committed seals -> verifyCommittedSeals = <nil>
+  variant R: round bumped to 1   -> verifyCommittedSeals = invalid committed seals
+             ^ EXPECTED to fail: Signers() derives the seal payload from
+               extra.Round, so a round change invalidates the seals.
+               The round vector is NOT a second valid block.
 
-  Header.Hash() A : e6eb6edc941d481a3905e3cd
-  Header.Hash() B : e6eb6edc941d481a3905e3cd
-  seal payload    : e6eb6edc941d481a3905e3cd  (identical for both)
+  Header.Hash() A : db0954512332d358611a1f49
+  Header.Hash() B : db0954512332d358611a1f49
+  seal payload    : db0954512332d358611a1f49  (identical for both)
 
   [MITIGATED] both variants hash identically -> no split
 
-    zz_vanity_split_test.go:158: FilteredHeader no longer lets VanityData pick the filter
+    zz_vanity_split_test.go:183: FilteredHeader no longer lets VanityData pick the filter
 --- SKIP: TestVanitySplit_BothVariantsVerify (0.00s)
 PASS
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.015s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.018s
 ------------------------------------------------------------
 
 >>> STEP 3  Upstream suite (PoC tests excluded) — the fix must not regress it
 ------------------------------------------------------------
-ok  	github.com/electroneum/electroneum-sc/core/types	1.753s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.015s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.633s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	2.952s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.097s
-ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.026s
+ok  	github.com/electroneum/electroneum-sc/core/types	1.916s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul	0.017s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/backend	2.647s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/core	3.654s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/engine	0.112s
+ok  	github.com/electroneum/electroneum-sc/consensus/istanbul/validator	0.023s
 ------------------------------------------------------------
 
 RESULT (fix applied)

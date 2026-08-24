@@ -137,6 +137,24 @@ func TestVanitySplit_BothVariantsVerify(t *testing.T) {
 		t.Fatal("seal payload differs between variants; seals would not be reusable")
 	}
 
+	// Variant R: same seals, Round bumped to 1. This is the vector that does NOT
+	// work, and the PoC proves it rather than assuming it. Signers() builds the
+	// seal payload as PrepareCommittedSeal(header, extra.Round) -- it reads the
+	// round out of the header -- so bumping the round changes the payload and the
+	// round-0 signatures no longer recover to validator addresses.
+	variantR := func() *types.Header {
+		h := newChild(realSeals[:quorum])
+		b, err := rlp.EncodeToBytes(&types.QBFTExtra{
+			VanityData: vanity, Validators: addrs, Vote: nil, Round: 1, CommittedSeal: realSeals[:quorum],
+		})
+		if err != nil {
+			t.Fatalf("encode R: %v", err)
+		}
+		h.Extra = b
+		return h
+	}()
+	errR := engine.verifyCommittedSeals(nil, variantR, []*types.Header{parent}, valSet)
+
 	errA := engine.verifyCommittedSeals(nil, variantA, []*types.Header{parent}, valSet)
 	errB := engine.verifyCommittedSeals(nil, variantB, []*types.Header{parent}, valSet)
 
@@ -145,13 +163,20 @@ func TestVanitySplit_BothVariantsVerify(t *testing.T) {
 	fmt.Printf("\n=== ONE BLOCK, TWO VALID HASHES ===\n")
 	fmt.Printf("  validators=%d, quorum=%d, seals signed by real keys\n\n", n, quorum)
 	fmt.Printf("  variant A: %d committed seals -> verifyCommittedSeals = %v\n", quorum, errA)
-	fmt.Printf("  variant B: %d committed seals -> verifyCommittedSeals = %v\n\n", n, errB)
+	fmt.Printf("  variant B: %d committed seals -> verifyCommittedSeals = %v\n", n, errB)
+	fmt.Printf("  variant R: round bumped to 1   -> verifyCommittedSeals = %v\n", errR)
+	fmt.Printf("             ^ EXPECTED to fail: Signers() derives the seal payload from\n")
+	fmt.Printf("               extra.Round, so a round change invalidates the seals.\n")
+	fmt.Printf("               The round vector is NOT a second valid block.\n\n")
 	fmt.Printf("  Header.Hash() A : %x\n", hA[:12])
 	fmt.Printf("  Header.Hash() B : %x\n", hB[:12])
 	fmt.Printf("  seal payload    : %x  (identical for both)\n\n", PrepareCommittedSeal(variantA, 0)[:12])
 
 	if errA != nil || errB != nil {
 		t.Fatalf("a variant failed verification (A=%v B=%v): no split", errA, errB)
+	}
+	if errR == nil {
+		t.Fatalf("variant R verified unexpectedly; the round vector would then also be a valid block")
 	}
 	if hA == hB {
 		fmt.Printf("  [MITIGATED] both variants hash identically -> no split\n\n")

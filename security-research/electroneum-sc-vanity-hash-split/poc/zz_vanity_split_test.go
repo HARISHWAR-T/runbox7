@@ -95,10 +95,11 @@ func craftVanity(t *testing.T, vlen int, vals []common.Address, round uint32, cs
 	if N < 256 || N > 0xffff {
 		t.Fatalf("N=%d outside canonical b9 range", N)
 	}
-	// Consistency: outer body = c0 + (b9 N1 N0 + N) + csEnc
-	if got := 1 + 3 + N + len(csEnc); got != M {
-		t.Fatalf("length arithmetic wrong: %d != %d", got, M)
-	}
+	// NOTE: a "1+3+N+len(csEnc) == M" assertion here would be a tautology -- both
+	// sides are derived from len(probe) by construction, so it can never fire. The
+	// real check that the craft is sound is the ExtractIstanbulExtra assertion in
+	// the caller: if any of this arithmetic is wrong, the legacy decode fails and
+	// the test stops there.
 
 	vanity := make([]byte, vlen)
 	copy(vanity[off:], []byte{
@@ -173,6 +174,26 @@ func TestVanityData_FlipsHashFilter(t *testing.T) {
 	}
 	fmt.Printf("  -> identical, so the SAME committed seals are valid for both variants\n\n")
 
+	// Does the craft survive the post-FutureFork 6-field encoding? QBFTExtra.EncodeRLP
+	// appends ProposerSeal as a 6th field when it is non-empty, which puts a byte
+	// string at the tail -- so the fake 3-field legacy list can no longer end exactly
+	// at the end of Extra.
+	withSeal, err := rlp.EncodeToBytes(&QBFTExtra{
+		VanityData: vanity, Validators: vals, Vote: nil, Round: 0,
+		CommittedSeal: quorum, ProposerSeal: bytes.Repeat([]byte{0x11}, IstanbulExtraSeal),
+	})
+	if err != nil {
+		t.Fatalf("encode with ProposerSeal: %v", err)
+	}
+	_, errSeal := ExtractIstanbulExtra(mkHeader(withSeal))
+	fmt.Printf("  same vanity + non-empty ProposerSeal (post-FutureFork 6-field form):\n")
+	fmt.Printf("    legacy decode err=%v -> %s filter\n", errSeal, filterName(errSeal))
+	if errSeal == nil {
+		fmt.Printf("    craft STILL works against the 6-field form\n\n")
+	} else {
+		fmt.Printf("    craft DIES against the 6-field form (lengths no longer line up)\n\n")
+	}
+
 	if hA == hB && hA == hR {
 		fmt.Printf("  [MITIGATED] all variants hash identically -> no split\n\n")
 		t.Skip("FilteredHeader no longer lets VanityData pick the filter")
@@ -183,7 +204,14 @@ func TestVanityData_FlipsHashFilter(t *testing.T) {
 		t.Errorf("SPLIT: seal count changes Header.Hash() (%x vs %x) while the seal payload is identical", hA[:8], hB[:8])
 	}
 	if hA != hR {
-		t.Errorf("SPLIT: round changes Header.Hash() (%x vs %x) for the same prepared block", hA[:8], hR[:8])
+		// Round is a rule violation on its own: QBFTFilteredHeaderWithRound zeroes
+		// Round precisely so it cannot enter the block hash, and under the legacy
+		// filter it does. But this does NOT yield a second seal-valid block --
+		// Signers() derives the seal payload from extra.Round, so bumping the round
+		// invalidates the committed seals. See TestVanitySplit_BothVariantsVerify,
+		// which asserts variant R fails verifyCommittedSeals. Only the seal-count
+		// vector produces two valid blocks.
+		t.Errorf("RULE VIOLATION (not a second valid block): round changes Header.Hash() (%x vs %x)", hA[:8], hR[:8])
 	}
 }
 
